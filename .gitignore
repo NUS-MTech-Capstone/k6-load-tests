@@ -1,0 +1,16 @@
+.env
+.env.*
+!.env.example
+
+results/
+*.json
+*.csv
+*.har
+*.log
+
+cookies.txt
+session-cookie.txt
+tokens.txt
+*.token
+
+.DS_Store
