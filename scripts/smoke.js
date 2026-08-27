@@ -2,6 +2,8 @@ import { checkCoreHealth, closeSession, startSession } from '../lib/http.js';
 import { smokeThresholds } from '../lib/thresholds.js';
 import { connectTerminal } from '../lib/ws.js';
 
+export { handleSummary } from '../lib/summary.js';
+
 export const options = {
   vus: 1,
   iterations: 1,

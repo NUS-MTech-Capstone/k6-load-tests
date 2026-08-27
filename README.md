@@ -66,12 +66,27 @@ export K6_SESSION_HOLD_SECONDS=2
 export K6_WS_COMMAND='printf ddm-k6\n'
 ```
 
+Optional evidence capture:
+
+```bash
+export K6_CAPTURE_VIDEO=1
+export K6_VIDEO_SECONDS=180
+```
+
+Screenshots and video use the built-in macOS `screencapture` command. The first
+video run may require granting Screen Recording permission to the terminal app
+that launched the command. If permission is missing, k6 still runs and the
+capture error is written to `k6.log`.
+
 `DDM_ALB_COOKIE_HEADER` may be either the full `Cookie: ...` header line or only
 the cookie value. For uncommon environments that require extra static headers,
 set `DDM_AUTH_HEADERS_JSON` to a JSON object.
 
 Do not commit real cookies, bearer tokens, HAR exports, or result files. The
 `.gitignore` excludes the usual local secret and output files.
+Review screenshots, videos, and logs before using them in the final report or a
+demo, and redact cookies, tokens, private hostnames, secret names, and any
+terminal content that is not deliberately harmless.
 
 ## Running
 
@@ -88,6 +103,31 @@ make stress
 make agentic
 make audit
 ```
+
+To create demo/report evidence artifacts, use the `*-report` targets:
+
+```bash
+make smoke-report
+make load-report
+make stress-report
+make agentic-report
+make audit-report
+```
+
+Each report run creates a timestamped directory:
+
+```text
+results/<profile>/<timestamp>/
+|-- report.html
+|-- summary.json
+|-- k6.log
+|-- before.png
+|-- after.png
+`-- run.mov        # only when K6_CAPTURE_VIDEO=1
+```
+
+The normal `make smoke`, `make load`, `make stress`, `make agentic`, and
+`make audit` targets still run k6 directly.
 
 Equivalent direct commands:
 

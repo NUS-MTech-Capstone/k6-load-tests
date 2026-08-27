@@ -3,6 +3,8 @@ import { config } from '../lib/config.js';
 import { get, listItems, parseJson, checkStatus } from '../lib/http.js';
 import { readOnlyThresholds } from '../lib/thresholds.js';
 
+export { handleSummary } from '../lib/summary.js';
+
 export const options = {
   scenarios: {
     agentic_ai_reads: {

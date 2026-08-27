@@ -11,6 +11,8 @@ import { config } from '../lib/config.js';
 import { loadThresholds } from '../lib/thresholds.js';
 import { connectTerminal } from '../lib/ws.js';
 
+export { handleSummary } from '../lib/summary.js';
+
 export const options = {
   scenarios: {
     session_lifecycle: {
