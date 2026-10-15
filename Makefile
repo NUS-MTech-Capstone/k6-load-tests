@@ -1,5 +1,6 @@
 K6 ?= k6
 NODE ?= node
+PYTHON ?= python3
 
 .PHONY: smoke load stress agentic audit smoke-report load-report stress-report agentic-report audit-report inspect
 
@@ -39,3 +40,9 @@ inspect:
 	$(K6) inspect scripts/agentic_ai_reads.js
 	$(K6) inspect scripts/audit_reads.js
 	$(K6) inspect scripts/stress_session_start.js
+	$(K6) inspect scripts/terminal_capacity.js
+	$(K6) inspect scripts/terminal_soak.js
+
+test:
+	$(NODE) --test tests/*.test.mjs
+	$(PYTHON) -m unittest discover -s tests -p 'test_*.py'

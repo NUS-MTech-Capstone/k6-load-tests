@@ -3,6 +3,7 @@ import { createWriteStream, mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { setTimeout as sleep } from 'node:timers/promises';
+import { finalizeReport } from './finalize-report.mjs';
 
 const profiles = {
   smoke: 'scripts/smoke.js',
@@ -169,6 +170,8 @@ async function main() {
   }
 
   const exitCode = await runK6(script, artifactDir, profile, log);
+  const result = finalizeReport(artifactDir, exitCode, exitCode === 130);
+  writeLog(log, `Final run status: ${result.status}; exit code: ${exitCode}`);
   captureScreenshot(resolve(artifactDir, 'after.png'), 'after', log);
   await waitForVideo(recording);
 

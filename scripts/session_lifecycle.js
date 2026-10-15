@@ -1,58 +1,10 @@
-import { sleep } from 'k6';
-import {
-  checkCoreHealth,
-  checkSessionReadApis,
-  closeSession,
-  observeSession,
-  rejoinSession,
-  startSession,
-} from '../lib/http.js';
+import { lifecycle } from '../lib/lifecycle.js';
 import { config } from '../lib/config.js';
-import { loadThresholds } from '../lib/thresholds.js';
-import { connectTerminal } from '../lib/ws.js';
-
 export { handleSummary } from '../lib/summary.js';
-
 export const options = {
-  scenarios: {
-    session_lifecycle: {
-      executor: 'constant-vus',
-      vus: config.vus,
-      duration: config.duration,
-      gracefulStop: '30s',
-    },
-  },
-  thresholds: {
-    ...loadThresholds,
-    ddm_ws_message_received: ['rate>0.95'],
-  },
+  scenarios: { session_lifecycle: { executor: 'constant-vus', vus: config.vus, duration: config.duration, gracefulStop: '30s' } },
+  thresholds: { checks: ['rate>=0.99'], 'http_req_failed{surface:api}': ['rate<0.01'],
+    ddm_session_start_duration: ['p(95)<2000'], ddm_lifecycle_success: ['rate==1'],
+    ddm_lifecycle_connect_success: ['rate>=0.99'], ddm_session_close_failed: ['count==0'], ddm_lifecycle_errors: ['count==0'] },
 };
-
-export default function () {
-  checkCoreHealth();
-
-  const session = startSession();
-  try {
-    connectTerminal(session, { closeMode: 'detach' });
-    checkSessionReadApis();
-
-    sleep(1);
-
-    const rejoin = rejoinSession(session.sessionId);
-    connectTerminal(rejoin, {
-      command: '',
-      closeMode: 'detach',
-      sendInput: false,
-    });
-
-    const observer = observeSession(session.sessionId);
-    connectTerminal(observer, {
-      command: '',
-      closeMode: 'detach',
-      sendInput: false,
-      holdSeconds: Math.min(config.sessionHoldSeconds, 1),
-    });
-  } finally {
-    closeSession(session.sessionId);
-  }
-}
+export default function () { lifecycle(); }

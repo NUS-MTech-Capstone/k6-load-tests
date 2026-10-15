@@ -1,0 +1,1 @@
+Protocol fixture copied verbatim from Proxy Dataplane commit ae0e0a2841b8c91c12ef71118889158600d6a577 (internal/protocol/packet.go). Refresh this pin when the protocol changes. Live tests exercise the same packet bytes through the deployed handlers.

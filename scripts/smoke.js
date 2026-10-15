@@ -1,25 +1,9 @@
-import { checkCoreHealth, closeSession, startSession } from '../lib/http.js';
-import { smokeThresholds } from '../lib/thresholds.js';
-import { connectTerminal } from '../lib/ws.js';
-
+import { checkCoreHealth } from '../lib/http.js';
+import { lifecycle } from '../lib/lifecycle.js';
 export { handleSummary } from '../lib/summary.js';
-
-export const options = {
-  vus: 1,
-  iterations: 1,
-  thresholds: {
-    ...smokeThresholds,
-    ddm_ws_message_received: ['rate==1.00'],
-  },
-};
-
-export default function () {
-  checkCoreHealth();
-
-  const session = startSession();
-  try {
-    connectTerminal(session, { closeMode: 'detach' });
-  } finally {
-    closeSession(session.sessionId);
-  }
-}
+export const options = { vus: 1, iterations: 1, thresholds: {
+  checks: ['rate==1'], 'http_req_failed{surface:api}': ['rate==0'],
+  ddm_lifecycle_success: ['rate==1'], ddm_lifecycle_connect_success: ['rate==1'],
+  ddm_session_close_failed: ['count==0'], ddm_lifecycle_errors: ['count==0'],
+}};
+export default function () { checkCoreHealth(); lifecycle(); }
