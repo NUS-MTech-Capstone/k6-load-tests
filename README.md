@@ -127,10 +127,3 @@ Lifecycle runs verify fresh echo after resize, retained scrollback plus new echo
 The protocol fixture records its deployed source pin. Source snapshots and the harness commit identify the generator; runtime digests and the Argo revision identify the application. Local sibling checkout SHAs are never substituted for deployed source. Resource series must contain all expected IDs with valid fresh values. Target memory is guarded alongside CPU. Generator CPU/RSS is recorded without process arguments or environment.
 
 Cleanup also reads Session Manager capacity through the existing internal control-plane service path. Within two minutes, all attributed sessions must be closed and dataplane runtime accounting must be no higher than remaining non-campaign metadata. Each run records the returned pod and process identifiers, capacity and recovery duration. This uses the existing endpoints and changes no deployment configuration.
-
-
-### 15 October SSH attempt
-
-The bounded AWS SSH campaign stopped during browser preflight cleanup, before any timed k6 workload. Both attributed sessions closed, but Session Manager continued to account for one active capacity slot for more than five minutes while the authenticated inventory was empty. The harness now rejects this mismatch during baseline, retaining `baseline-capacity.json` before any workload can start. No 40-session, latency, soak, lifecycle-load or start-stress result is claimed. The historical 37,856 API-read requests remain a separate workload with incomplete repetition coverage.
-
-[Sanitized SSH preflight evidence](https://github.com/NUS-MTech-Capstone/kubernetes/tree/main/documentation/evidence/ssh-2026-10-15) records the deployed revisions, closure events, resource observations and the unresolved recovery failure. A new measurement campaign requires the capacity-accounting defect to be resolved and a fresh healthy preflight.
