@@ -16,7 +16,7 @@ import subprocess
 import threading
 import time
 
-from aws_support import Api, ACCOUNT, BASE, REGION, aws, kube, items, utcnow, command
+from aws_support import Api, ACCOUNT, BASE, REGION, CONTEXT, aws, kube, items, utcnow, command
 
 ROOT = Path(__file__).resolve().parents[1]
 SERVICES = ('proxy-dataplane', 'proxy-controlplane', 'session-manager', 'audit-service', 'sts')
@@ -50,6 +50,34 @@ def snapshot():
                 'containers': [{'name': c['name'], 'image': c['image'], 'digest': c.get('imageID'),
                     'restarts': c.get('restartCount', 0)} for c in cs]})
     return sorted(result, key=lambda p: (p['namespace'], p['name']))
+
+
+def capacity_snapshot():
+    data = json.loads(command(['kubectl', '--context', CONTEXT, '-n', 'dendenmushi-ssh',
+        'exec', 'deploy/proxy-controlplane', '-c', 'proxy-controlplane', '--', 'wget', '-T', '10', '-qO-',
+        '--header=x-api-version: 1', 'http://session-manager:8081/proxy-pods/available']))
+    if not isinstance(data, list) or not data:
+        raise RuntimeError('No fresh available dataplane capacity')
+    return [{k: row[k] for k in ('podId', 'instanceId', 'status', 'activeSessions', 'maxSessions', 'lastHeartbeatAt')} for row in data]
+
+
+def verify_capacity_release(active, created, timeout=120):
+    started = time.monotonic()
+    result = {'capacityReleased': False, 'remainingCampaignSessions': None, 'capacity': [], 'error': None}
+    try:
+        while True:
+            capacities = capacity_snapshot()
+            current = active()
+            remaining = [s for s in current if s.get('sessionId') in created]
+            result.update(capacity=capacities, remainingCampaignSessions=len(remaining),
+                capacityReleased=not remaining and sum(p['activeSessions'] for p in capacities) <= len(current))
+            if result['capacityReleased'] or time.monotonic() - started >= timeout:
+                break
+            time.sleep(min(10, max(0, timeout - (time.monotonic() - started))))
+    except Exception as e:
+        result['error'] = 'recovery_monitoring_failure:' + type(e).__name__
+    result['recoverySeconds'] = time.monotonic() - started
+    return result
 
 
 def health_change(before, after):
@@ -382,6 +410,7 @@ class Campaign:
             dest.parent.mkdir(parents=True, exist_ok=True); dest.write_bytes(content)
         save(directory / 'resources-before.json', metrics)
         save(directory / 'deployment-before.json', baseline)
+        save(directory / 'capacity-before.json', capacity_snapshot())
         coordinator = Coordinator(self.api, directory, max(1, capacity),
             vus if script in ('terminal_capacity', 'terminal_soak') else 0, seconds, ramp)
         server = coordinator.server()
@@ -454,9 +483,11 @@ class Campaign:
         leftovers = [] if is_read else [s for s in self.active() if s.get('crId') == self.args.cr]
         unknown = [s.get('sessionId') for s in leftovers if s.get('sessionId') not in coordinator.created]
         if unknown: abort = abort or 'unattributed_sessions_require_review'
-        remaining = [s for s in self.active() if s.get('sessionId') in coordinator.created]
-        save(directory / 'recovery.json', {'remainingCampaignSessions': len(remaining), 'unattributedSessionIds': unknown, 'deployment': snapshot()})
-        if remaining: abort = abort or 'sessions_remain'
+        recovery = verify_capacity_release(self.active, coordinator.created)
+        recovery.update(unattributedSessionIds=unknown)
+        save(directory / 'recovery.json', recovery)
+        if recovery['remainingCampaignSessions']: abort = abort or 'sessions_remain'
+        if not recovery['capacityReleased']: abort = abort or recovery['error'] or 'capacity_not_released'
         plateau = coordinator.plateau_result()
         if plateau and not plateau['complete']:
             abort = abort or 'incomplete_concurrency_plateau'
