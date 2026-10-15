@@ -1,147 +1,127 @@
 # DenDenMushi k6 Load Tests
 
-Focused Grafana k6 tests for the key DenDenMushi application paths. The suite
-targets the AWS dev application first and defaults to:
+## Guarded AWS evaluation
 
-```text
-https://api.ddm.keiyam.me
-```
+The A01/A07/R13 evaluation targets **40 concurrent interactive SSH sessions**
+on the existing dev deployment. This is an acceptance target, not a measured
+result. The deployment's configured limit remains 50; the campaign reserves
+ten slots and accounts for existing sessions. Historical API-only evidence remains in `../documentation/performance-evidence/2026-10-07/`. New SSH evidence is stored under its actual campaign date.
 
-These tests preserve the production boundaries: session control goes through
-Proxy Control Plane, live terminal traffic connects directly to Proxy
-Dataplane over WebSocket, and Agentic AI tests only read safe operator APIs.
-
-## Scope
-
-Included in v1:
-
-- health and readiness checks
-- SSH session start, owner WebSocket attach, resize/input, detach, rejoin,
-  observe, and close
-- safe session list and rejoin-candidate reads
-- Agentic AI health, alerts, incidents, and incident timeline reads
-- session audit and metadata audit facade reads
-- session-start stress testing with cleanup
-
-Not included:
-
-- Cognito password or browser login automation
-- Cognito user administration load
-- broad CRUD/API fuzzing
-- incident approval, rejection, or remediation load by default
-- Terraform, Kubernetes, or GitOps operations
-- any brokered terminal traffic path
-
-## Requirements
-
-- [Grafana k6](https://grafana.com/docs/k6/latest/set-up/install-k6/)
-- An active ALB-authenticated browser session for the target environment
-- A host/change-request pair that is valid for your authenticated user
-
-## Configuration
-
-Copy the example and fill in local values:
+`tools/campaign.py` runs sustained terminal traffic separately from API reads.
+It requires Python 3.10+, k6, AWS CLI, kubectl, access to the existing capstone
+AWS profile, and a current approved change request scoped to `host-dev-1`.
+The Python runner uses only the standard library. AWS account and Kubernetes
+context checks are explicit; it does not modify STS or infrastructure.
 
 ```bash
-cp .env.example .env
+make test
+make inspect
+python3 tools/campaign.py --ssh-only --cr APPROVED_CR_ID \
+  --output ../documentation/performance-evidence/YYYY-MM-DD/ssh-campaign
+
+# Read-only profiles do not need SSH change authority.
+python3 tools/campaign.py --reads-only \
+  --output ../documentation/performance-evidence/YYYY-MM-DD/api-campaign
 ```
 
-Required for AWS dev:
+On macOS, the opt-in runner can authenticate through the existing Cognito
+hosted login with the dedicated `DenDenMushi E2E Cognito` Keychain entry. It
+checks the destination, keeps the password and ALB cookie in process memory,
+and never writes them to arguments or evidence. An existing
+`DDM_ALB_COOKIE_HEADER` can be supplied instead. It never creates or approves
+change requests, changes permissions, or bypasses an expired access window.
 
-```bash
-export BASE_URL=https://api.ddm.keiyam.me
-export DDM_ALB_COOKIE_HEADER='Cookie: AWSELBAuthSessionCookie-0=...; AWSELBAuthSessionCookie-1=...'
-export HOST_ID='...'
-export CR_ID='...'
-```
+The local coordinator binds only to loopback and uses a random per-run
+credential for mutations. It caps session starts globally at two per second,
+tracks campaign session IDs for cleanup, and provides a credential-free live
+progress page. Only the dedicated campaign CR may be used: uncertain start
+responses are checked against that CR after abort. Unattributed session IDs stop
+the campaign for review; they are never automatically closed.
 
-Optional tuning:
+### Workloads and acceptance
 
-```bash
-export K6_VUS=5
-export K6_DURATION=2m
-export K6_RAMP_UP=30s
-export K6_RAMP_DOWN=30s
-export K6_SESSION_HOLD_SECONDS=2
-export K6_WS_COMMAND='printf ddm-k6\n'
-```
+| Profile | Measurement |
+| --- | --- |
+| `terminal_capacity.js` | One PTY per VU; 60-second staggered ramp, five-minute plateau; levels 5, 10, 20, 30, 40. |
+| `terminal_soak.js` | Same traffic, with `K6_MEASURE_SECONDS=1200` supplied by the campaign. |
+| Lifecycle | Five VUs, three minutes, three repetitions. |
+| Start stress | Five VUs, two minutes plus 30-second ramps, two starts/second maximum. |
+| Agentic and audit reads | Ten VUs, five minutes, three repetitions each, run separately. |
 
-`DDM_ALB_COOKIE_HEADER` may be either the full `Cookie: ...` header line or only
-the cookie value. For uncommon environments that require extra static headers,
-set `DDM_AUTH_HEADERS_JSON` to a JSON object.
+The campaign repeats 20 sessions and the highest passing level twice more,
+then soaks at the highest passing level. A failed level is retained and stops
+escalation. Runs receive a minimum one-minute cooldown; resource recovery is
+bounded to five minutes.
 
-Do not commit real cookies, bearer tokens, HAR exports, or result files. The
-`.gitignore` excludes the usual local secret and output files.
+Echo probes send a unique printable marker every two seconds, then clear the
+input line with Ctrl-U; they never submit it as a shell command. Only an exact
+match in terminal output completes a probe. Fragmentation is supported,
+events/errors are excluded, and the transient buffer is capped at 4 KiB.
+The 1.5-second timeout produces a failed sample, never a fast success.
+This measures end-to-end transport/PTY echo, not browser rendering latency or
+heavy command-execution throughput.
 
-## Running
+Acceptance: steady echo p95 <200 ms, session-start API p95 <2 s, connection/probe success ≥99%, remote HTTP failures <1%, no unexpected disconnections or protocol errors, and zero campaign sessions after cleanup. API-read profiles separately require p50/p95 <1 s. k6
+coordinator traffic is excluded from remote HTTP thresholds. Reports include
+p50/p95/p99, counts, failed thresholds, and the process exit status.
 
-The `Makefile` assumes environment variables are already loaded:
+### Stopping and evidence
 
-```bash
-set -a
-source .env
-set +a
+The runner stops on authorization failure, unexpected disconnects, workload
+readiness/restart/revision changes, failed cleanup, >5% rolling HTTP failures,
+>1% probe failures, or rolling echo p95 >1 s. Resource checks stop after two
+consecutive one-minute samples above 85% CPU or 80% memory relative to the
+critical containers' limits, or 85% CPU on the target/RDS and 80% target memory. Missing required
+telemetry older than three minutes stops the run.
 
-make smoke
-make load
-make stress
-make agentic
-make audit
-```
+Artifacts include `campaign.json`, deployment snapshots, per-run manifests,
+`summary.json`, `metrics.jsonl`, HTML reports, availability probes, resource
+samples, session inventory, sanitized lifecycle events, and cleanup results.
+Do not enable HTTP debug logging. Reports must be read together with
+`result.json`: aborted or nonzero-exit runs cannot be treated as passing.
+Session content, response bodies, authentication headers, and credentials are
+excluded from artifacts. Metrics are timestamped; the report labels gaps and
+distinguishes a tested ceiling from actual saturation or long-term uptime.
 
-Equivalent direct commands:
+Local integration tests open loopback sockets. If the managed sandbox denies
+socket binding, run those tests outside that sandbox without changing them.
 
-```bash
-k6 run scripts/smoke.js
-k6 run scripts/session_lifecycle.js
-k6 run scripts/stress_session_start.js
-k6 run scripts/agentic_ai_reads.js
-k6 run scripts/audit_reads.js
-```
+## Standalone profiles
 
-## Profiles
+The Makefile retains `smoke`, `load`, `stress`, `agentic` and `audit` shortcuts.
+These direct k6 invocations do not activate the global creation limiter,
+resource monitoring or interruption reconciliation. Use the campaign runner
+for the agreed AWS evaluation. The legacy `*-report` targets provide a local
+summary and optional macOS desktop capture; they are not the guarded campaign.
 
-| Target | Script | Purpose |
-| --- | --- | --- |
-| `smoke` | `scripts/smoke.js` | One authenticated end-to-end check: health, start, WebSocket attach, close. |
-| `load` | `scripts/session_lifecycle.js` | Repeated SSH lifecycle coverage: owner attach, detach, rejoin, observe, close. |
-| `stress` | `scripts/stress_session_start.js` | Ramped concurrent session start and immediate close cleanup. |
-| `agentic` | `scripts/agentic_ai_reads.js` | Read-only Agentic AI dashboard/API load. |
-| `audit` | `scripts/audit_reads.js` | Read-only audit facade load with bounded list sizes. |
+Core configuration uses `BASE_URL`, `DDM_ALB_COOKIE_HEADER`, `HOST_ID` and
+`CR_ID`. Set credentials through the invoking process environment without
+putting them in shell history. Do not enable HTTP debug output or commit
+`.env`, cookies, HAR exports or response bodies. `K6_VUS` accepts integral
+values 1–40; duration and ramp settings remain bounded by the campaign.
 
-## Safety Notes
+API iterations sleep one second. Terminal-capacity probes never execute
+commands. The campaign sets a harmless printable, cleared marker for
+smoke/lifecycle profiles (without submitting a command) and exercises resize, detach, rejoin, observer attach
+and close. Start stress creates and closes sessions without opening a PTY.
+Agentic and audit profiles only read existing records; they never approve,
+reject, remediate or change infrastructure.
 
-- The WebSocket tests send only bounded terminal protocol packets.
-- The default terminal input is `printf ddm-k6\n`.
-- Session close runs in `finally` blocks so capacity is released even after a
-  failed check.
-- Agentic AI scripts do not call approve, reject, remediation, automation run,
-  Kubernetes, Terraform, or shell-command endpoints.
-- The suite does not store or generate Cognito credentials.
+`tools/export_cloudwatch.py --output DIRECTORY --start UTC --end UTC` exports
+the existing dashboard plus supplemental charts using verified published
+metric dimensions. Container limit charts are separate from the dashboard's
+node-relative pod percentages. Original missing series remain visible.
+`tools/build_evidence.py EVIDENCE_DIRECTORY` derives comparable run rows from
+raw summaries, including p50/p95/p99, sample counts, throughput, cleanup and
+exact availability observation windows. It does not infer a terminal capacity
+result from API-read load.
 
-## Thresholds
+## SSH-only measurement controls
 
-Smoke defaults:
+Use `--ssh-only` to exclude the historical API-read repetitions. The runner requires a clean committed harness, a new output directory, normal authenticated access, five minutes of fresh baseline telemetry, and an approved dedicated change request. CI runs only local fixtures and never signs into AWS.
 
-- all checks pass
-- no HTTP request failures
-- p95 HTTP latency below 1 second
-- WebSocket upgrade succeeds
+Each capacity run waits for every requested SSH session's first exact echo, then starts a common timed plateau. The recorded `plateau` includes readiness, start/end times, per-session probe counts and premature disconnections. Insufficient concurrency, missing samples or a shortened plateau cannot pass. `ddm_ssh_ready_ms` measures WebSocket/SSH setup through the first scheduled echo; it includes probe scheduling and is distinct from session-start API timing and per-probe terminal echo timing.
 
-Load defaults:
+Lifecycle runs verify fresh echo after resize, retained scrollback plus new echo after rejoin, explicit observer write rejection without echo, and server termination followed by idempotent close. No arbitrary shell command runs. Health/authentication/telemetry/cleanup failures stop the whole campaign. Only ordinary latency SLO failures may proceed to lower-level repetitions after verified cooldown; the failed run remains visible. A 40-session pass is a tested ceiling, not proof of the saturation point or browser rendering performance.
 
-- check rate above 99%
-- HTTP failure rate below 1%
-- p95 session start latency below 2 seconds
-- WebSocket connection success above 99%
-
-Stress defaults:
-
-- check rate above 95%
-- HTTP failure rate below 5%
-- p95 session start latency below 5 seconds
-- fewer than five close failures
-
-Tune `K6_VUS`, `K6_DURATION`, `K6_RAMP_UP`, and `K6_RAMP_DOWN` conservatively
-for AWS dev. These scripts exercise real sessions and consume dataplane
-capacity.
+The protocol fixture records its deployed source pin. Source snapshots and the harness commit identify the generator; runtime digests and the Argo revision identify the application. Local sibling checkout SHAs are never substituted for deployed source. Resource series must contain all expected IDs with valid fresh values. Target memory is guarded alongside CPU. Generator CPU/RSS is recorded without process arguments or environment.

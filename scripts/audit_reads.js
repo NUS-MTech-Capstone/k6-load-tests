@@ -3,6 +3,8 @@ import { config } from '../lib/config.js';
 import { checkStatus, get, listItems, parseJson } from '../lib/http.js';
 import { readOnlyThresholds } from '../lib/thresholds.js';
 
+export { handleSummary } from '../lib/summary.js';
+
 export const options = {
   scenarios: {
     audit_reads: {

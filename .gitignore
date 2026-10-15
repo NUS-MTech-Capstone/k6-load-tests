@@ -14,3 +14,4 @@ tokens.txt
 *.token
 
 .DS_Store
+__pycache__/

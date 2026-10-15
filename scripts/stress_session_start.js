@@ -3,6 +3,8 @@ import { closeSession, startSession } from '../lib/http.js';
 import { config } from '../lib/config.js';
 import { stressThresholds } from '../lib/thresholds.js';
 
+export { handleSummary } from '../lib/summary.js';
+
 export const options = {
   scenarios: {
     stress_session_start: {
