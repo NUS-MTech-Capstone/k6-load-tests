@@ -134,3 +134,22 @@ class MeasurementGuards(unittest.TestCase):
         c.run=run
         with patch('campaign.kube',return_value={'data':{'MAX_SESSIONS':'50'}}),self.assertRaises(RuntimeError):c.execute()
         self.assertEqual(calls,['00-smoke','capacity-5-r1'])
+
+
+class RecoveryEvidence(unittest.TestCase):
+    def test_release_allows_unrelated_active_sessions(self):
+        from campaign import verify_capacity_release
+        with patch('campaign.capacity_snapshot', return_value=[{'activeSessions': 1}]):
+            result = verify_capacity_release(lambda: [{'sessionId': 'other'}], {'campaign'}, timeout=0)
+        self.assertTrue(result['capacityReleased'])
+        self.assertEqual(result['remainingCampaignSessions'], 0)
+
+    def test_stale_accounting_and_monitor_failure_are_explicit(self):
+        from campaign import verify_capacity_release
+        with patch('campaign.capacity_snapshot', return_value=[{'activeSessions': 1}]):
+            result = verify_capacity_release(lambda: [], {'campaign'}, timeout=0)
+        self.assertFalse(result['capacityReleased'])
+        with patch('campaign.capacity_snapshot', side_effect=RuntimeError('no capacity')):
+            result = verify_capacity_release(lambda: [], {'campaign'}, timeout=0)
+        self.assertEqual(result['error'], 'recovery_monitoring_failure:RuntimeError')
+        self.assertFalse(result['capacityReleased'])
