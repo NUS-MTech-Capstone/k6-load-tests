@@ -61,6 +61,12 @@ def capacity_snapshot():
     return [{k: row[k] for k in ('podId', 'instanceId', 'status', 'activeSessions', 'maxSessions', 'lastHeartbeatAt')} for row in data]
 
 
+def capacity_violation(capacities, active):
+    if sum(p['activeSessions'] for p in capacities) > len(active):
+        return 'capacity_accounting_mismatch'
+    return None
+
+
 def verify_capacity_release(active, created, timeout=120):
     started = time.monotonic()
     result = {'capacityReleased': False, 'remainingCampaignSessions': None, 'capacity': [], 'error': None}
@@ -513,6 +519,12 @@ class Campaign:
     def baseline(self):
         self.access(300 + 120)
         for index in range(11):
+            capacities = capacity_snapshot()
+            active = self.active()
+            accounting = capacity_violation(capacities, active)
+            save(self.dir / 'baseline-capacity.json', {'timestamp': utcnow().isoformat(), 'capacity': capacities,
+                'activeSessionCount': len(active), 'reason': accounting})
+            if accounting: raise RuntimeError(accounting)
             resources = fetch_resources(self.queries)
             reason = resource_violation(resources, expected_ids=[q['Id'] for q in self.queries]) or health_change(self.initial, snapshot())
             with (self.dir / 'baseline.jsonl').open('a') as f:

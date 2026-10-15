@@ -153,3 +153,20 @@ class RecoveryEvidence(unittest.TestCase):
             result = verify_capacity_release(lambda: [], {'campaign'}, timeout=0)
         self.assertEqual(result['error'], 'recovery_monitoring_failure:RuntimeError')
         self.assertFalse(result['capacityReleased'])
+
+
+class BaselineCapacityGuard(unittest.TestCase):
+    def test_phantom_capacity_is_rejected_without_closing_sessions(self):
+        from campaign import capacity_violation
+        self.assertEqual(capacity_violation([{'activeSessions':1}],[]),'capacity_accounting_mismatch')
+        self.assertIsNone(capacity_violation([{'activeSessions':1}],[{'sessionId':'other'}]))
+
+    def test_baseline_preserves_mismatch_evidence_before_load(self):
+        from campaign import Campaign
+        with tempfile.TemporaryDirectory() as d:
+            c=Campaign.__new__(Campaign);c.dir=Path(d);c.access=lambda duration:None;c.active=lambda:[]
+            with patch('campaign.capacity_snapshot',return_value=[{'activeSessions':1}]),self.assertRaisesRegex(RuntimeError,'capacity_accounting_mismatch'):
+                c.baseline()
+            evidence=json.loads((Path(d)/'baseline-capacity.json').read_text())
+            self.assertEqual(evidence['activeSessionCount'],0)
+            self.assertEqual(evidence['reason'],'capacity_accounting_mismatch')
